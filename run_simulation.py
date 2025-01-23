@@ -1,17 +1,27 @@
+#run_simulation.py
 import taichi as ti
 import json
 import particle_system
 import numpy as np
 import os
+from smoke import Smoke3D
+
 
 ti.init(arch=ti.gpu)
 
-with open('./data/scenes/dragon_bath.json', 'r') as f:
+with open('./data/scenes/volcano_eruption.json', 'r') as f:
     simulation_config = json.load(f)
 
 config = simulation_config['Configuration']
 
 box_x, box_y, box_z = config['domainEnd']
+# Define crater location (example: center of the simulation domain)
+crater_x, crater_y, crater_z = box_x / 2, box_y / 4, box_z / 2
+
+# Initialize Smoke
+max_height = box_y - 0.1
+smoke = Smoke3D(crater_x, crater_y - 0.3, crater_z, max_height)
+
 
 box_vertex_point = ti.Vector.field(3, dtype=ti.f32, shape=8)
 box_vertex_point[0] = [0., 0., 0.]
@@ -32,10 +42,10 @@ window = ti.ui.Window("SPH", (1500, 1000))
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
-camera.position(6.5, 3.5, 5)
-camera.lookat(-1, -1.5, -3)
+camera.position(1.2, 1.4, 3.0)
+camera.lookat(1.2, 1.0, 1.5)
 scene.set_camera(camera)
-canvas.set_background_color((1, 1, 1))
+canvas.set_background_color((0.1, 0.1, 0.1))
 
 ps = particle_system.ParticleSystem(simulation_config)
 ps.memory_allocation_and_initialization_only_position()
@@ -55,7 +65,7 @@ object_config = ps.rigidBodiesConfig.copy()
 include_rigid_object = True
 pre_include_rigid_object = True
 
-scene_name = 'Dragon Bath'
+scene_name = 'Volcano Eruption'
 output_frames = False
 output_interval = config['outputInterval']
 output_ply = False
@@ -65,12 +75,51 @@ series_prefix = "{}_output/particle_object_{}.ply".format(scene_name, "{}")
 enter_second_phase_first_time = True
 reset_scene_flag = False
 
+max_particles = 2000
+pos_field = ti.Vector.field(3, dtype=ti.f32, shape=(max_particles * 4))
+color_field = ti.Vector.field(4, dtype=ti.f32, shape=(max_particles * 4))
+index_field = ti.field(ti.i32, shape=(max_particles * 6))
+
 while window.running:
     if start_step:
         for i in range(substep):
             solver.step()
-
+    cooling_rate = 50
+    ps.cool_particles(cooling_rate)
+    #ps.update_fluid_colors()
     camera.track_user_inputs(window, movement_speed=0.02, hold_key=ti.ui.RMB)
+
+    camera_pos = np.array([camera.curr_position[0], camera.curr_position[1], camera.curr_position[2]])
+    lookat_pos = np.array([camera.curr_lookat[0], camera.curr_lookat[1], camera.curr_lookat[2]])
+    forward = lookat_pos - camera_pos
+    if np.linalg.norm(forward) < 1e-6:
+        forward = np.array([0,0,1])
+    forward /= np.linalg.norm(forward)
+    up_dir = np.array([0, 1, 0])
+
+    # If forward is nearly vertical, adjust the up vector to avoid degeneracy
+    if abs(np.dot(forward, up_dir)) > 0.99:
+        up_dir = np.array([1, 0, 0])  # Choose a different "world up" if camera looks almost straight up/down
+
+    right = np.cross(forward, up_dir)
+    right_len = np.linalg.norm(right)
+    if right_len < 1e-6:
+        right = np.array([1,0,0])
+    else:
+        right /= right_len
+    
+    up = np.cross(right, forward)
+    up /= np.linalg.norm(up)
+    # Update Smoke Particles
+    smoke.update()
+
+    smoke.draw(pos_field, color_field, index_field, max_particles, right, up)
+
+    # Draw smoke as a mesh instead of particles
+    count = smoke.draw(pos_field, color_field, index_field, max_particles, right, up)
+    scene.mesh(pos_field, indices=index_field, per_vertex_color=color_field,
+            vertex_count=count * 4, index_count=count * 6)
+
 
     gui.begin('Widget', 0, 0, 0.15, 1.0)
     gui.text("SPH Particle System")
@@ -185,14 +234,22 @@ while window.running:
 
     scene.set_camera(camera)
     scene.point_light((2, 2, 2), color=(1, 1, 1))
+    scene.ambient_light(color=(0.5, 0.5, 0.5))
+    #scene.point_light(pos=(0, 1, 0), color=(0.5, 0.5, 0.5))
+    #scene.point_light(pos=(1, 1, 1), color=(0.5, 0.5, 0.5))
+    #scene.point_light(pos=(1, 1, 0), color=(0.5, 0.5, 0.5))
+    #scene.point_light(pos=(0, 1, 1), color=(0.5, 0.5, 0.5))
     scene.lines(box_vertex_point, width=3.0, indices=box_edge_index, color=(0, 0, 0))
 
     if draw_object_in_mesh:
+         # Update lava colors to red-orange
+        #for i in range(ps.total_fluid_particle_num):
+        #    ps.fluid_only_color[i] = [1.0, 0.5, 0.0, 1.0]  # RGBA: Red-orange lava
         ps.update_fluid_position_info()
         ps.update_fluid_color_info()
         scene.particles(ps.fluid_only_position, radius=ps.particle_radius, per_vertex_color=ps.fluid_only_color)
         for i in range(len(ps.mesh_vertices)):
-            scene.mesh(ps.mesh_vertices[i], ps.mesh_indices[i])
+            scene.mesh(ps.mesh_vertices[i], ps.mesh_indices[i], color=(0.2, 0.2, 0.2))
     else:
         scene.particles(ps.position, radius=ps.particle_radius, per_vertex_color=ps.color)
     canvas.scene(scene)

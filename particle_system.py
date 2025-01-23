@@ -1,7 +1,28 @@
+#particle_system.py
 import taichi as ti
 import numpy as np
 import trimesh as tm
 import WCSPH
+
+@ti.func
+def temperature_to_color(temp: ti.f32) -> ti.Vector:
+    color = ti.Vector([1.0, 0.7, 0.2])  # default color for <=400°C
+
+    if temp > 1000.0:
+        color = ti.Vector([1.0, 0.7, 0.2])
+    elif temp > 800.0:
+        blend = (temp - 800.0) / 200.0
+        color = ti.Vector([1.0 - 0.7*blend, 0.7 - 0.4*blend, 0.2 - 0.1*blend])
+    elif temp > 600.0:
+        blend = (temp - 600.0) / 200.0
+        color = ti.Vector([1.0 - 0.6*blend, 0.3 - 0.1*blend, 0.1 - 0.05*blend])
+    elif temp > 400.0:
+        blend = (temp - 400.0) / 200.0
+        color = ti.Vector([0.4 - 0.3*blend, 0.2 - 0.15*blend, 0.1 - 0.1*blend])
+    else:
+        color = ti.Vector([0.1, 0.05, 0.0])
+
+    return color
 
 
 @ti.data_oriented
@@ -62,6 +83,10 @@ class ParticleSystem:
         self.position = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.total_particle_num)
         self.color = ti.Vector.field(3, dtype=ti.f32, shape=self.total_particle_num)
         self.material = ti.field(dtype=ti.i32, shape=self.total_particle_num)
+        self.lifetime = ti.field(ti.f32, shape=self.total_particle_num)
+        #self.reset_lifetime()
+        self.temperature = ti.field(ti.f32, shape=self.total_particle_num)
+        self.initialize_temperature(1200.0)
 
         # ========== Initialize particles ==========#
 
@@ -185,6 +210,11 @@ class ParticleSystem:
                                density=np.full((rigid_body_particle_num,), density, dtype=np.float32),
                                pressure=np.full((rigid_body_particle_num,), 0.0, dtype=np.float32),
                                is_dynamic=np.full((rigid_body_particle_num,), rigid_body_is_dynamic, dtype=np.int32))
+
+    @ti.kernel
+    def reset_lifetime(self):
+        for i in range(self.total_particle_num):
+            self.lifetime[i] = 0.0
 
     def free_memory_allocation(self):
         del self.object_collection
@@ -509,3 +539,43 @@ class ParticleSystem:
 
     def dump(self):
         return self.fluid_only_position.to_numpy()
+
+    def add_particle(self, position, velocity):
+        """
+        Add a single particle dynamically to the system.
+
+        Args:
+            position (list): [x, y, z] coordinates of the particle.
+            velocity (list): [vx, vy, vz] initial velocity of the particle.
+        """
+        self.position[self.total_fluid_particle_num] = position
+        self.velocity[self.total_fluid_particle_num] = velocity
+        self.total_fluid_particle_num += 1
+
+    @ti.kernel
+    def update_fluid_colors(self):
+        for i in range(self.total_particle_num):
+            if self.material[i] == self.material_fluid:
+                temp = self.temperature[i]
+                self.color[i] = temperature_to_color(temp)
+    
+    @ti.kernel
+    def initialize_temperature(self, initial_temp: ti.f32):
+        for i in range(self.total_particle_num):
+            if self.material[i] == self.material_fluid:
+                self.temperature[i] = initial_temp
+            else:
+                self.temperature[i] = 25.0  # Ambient temperature for solids (like the volcano)
+    
+    @ti.kernel
+    def cool_particles(self, cooling_rate: ti.f32):
+        for i in range(self.total_particle_num):
+            if self.material[i] == self.material_fluid:
+                # Reduce temperature each step
+                self.temperature[i] = max(self.temperature[i] - cooling_rate, 25.0)
+    
+
+
+
+
+    

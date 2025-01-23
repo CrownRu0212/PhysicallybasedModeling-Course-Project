@@ -1,0 +1,46 @@
+{
+    "Configuration": {
+        "domainStart": [0.0, 0.0, 0.0],
+        "domainEnd": [1.62, 1.62, 1.65],
+        "particleRadius": 0.003,
+        "numberOfStepsPerRenderUpdate": 1,
+        "density0": 2700, 
+        "simulationMethod": 0,
+        "gravitation": [0.0, -9.81, 0.0],
+        "outputInterval": 40,
+        "B": 50000,
+        "gamma": 7,
+        "dt": 2e-4,
+        "collisionFactor": 0.5,
+        "viscosity": 0.4,
+        "surfaceTension": 0.1,
+        "c_s": 88.5
+    },
+    "RigidBodies": [
+        {
+            "objectId": 1,
+            "geometryFile": "./data/models/scaled_volcano_landscape.obj",
+            "translation": [0.0, 0.0, 1.65],
+            "rotationAxis": [0, 1, 0],
+            "rotationAngle": 0,
+            "scale": [1, 1, 1],
+            "velocity": [0.0, 0.0, 0.0],
+            "density": 2700.0,
+            "color": [0.4, 0.2, 0.1],  
+            "isDynamic": false,
+            "sigma": 0.0008
+        }
+    ],
+    "FluidBlocks": [
+        {
+            "objectId": 0,
+            "start": [0.6, 0.3, 0.7],
+            "end": [1.1, 0.5, 1.1],
+            "translation": [0.0, 0.0, 0.0],
+            "scale": [1, 1, 1],
+            "velocity": [0.0, 0.05, 0.0],
+            "density": 2700.0,
+            "color": [1.0, 0.5, 0.0]  
+        }
+    ]
+}
